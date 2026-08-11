@@ -1,0 +1,5 @@
+アーキテクチャ: resnet200d
+条件: nfft512_mel256_fmax1000
+開発フェーズ(3-fold探索, 採用HP): mean_val_auc = 0.8421
+外部データ: auc_recording = 0.8726 [0.7563, 0.9888] (n_recordings=38)
+外部データ(ロック済み閾値=0.1956): F1=0.7442, Sens=0.8421, Spec=0.5789

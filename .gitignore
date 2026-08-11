@@ -1,0 +1,72 @@
+# ==============================================================================
+# 患者データ・臨床情報(共有厳禁)
+# ==============================================================================
+# 元音声・臨床メタデータ。patient_id は匿名化済みだが、fv_value / POD / RI 等の
+# 臨床測定値を含むため、xlsx・csv とも公開リポジトリには含めない。
+data/
+metadata/*.csv
+
+# クリップ単位の患者ラベル付き予測結果(patient_id + true_label が紐づく)。
+# 個別の診断結果に相当するため共有しない。
+results/predictions/
+
+# 学習中に生成される一時画像(条件ごとに生成→学習→削除される中間生成物)。
+images/
+
+# モデル重み(通常は保存しない設定だが、保存された場合は除外)
+results/models/
+*.pth
+*.pt
+
+# ==============================================================================
+# 実行結果・ログ(基本的に再現可能な生成物のため任意 — 集計CSVや図表は含めてよい)
+# ==============================================================================
+results/status.json
+results/run.log
+results/soft_errors.log
+results/loss_curves/
+
+# config.yaml の実行時コピー。特定の実行バッチに紐づく内部記録であり、
+# 公開リポジトリでは config.yaml 本体で十分なため含めない。
+results/config_snapshot.yaml
+**/config_snapshot.yaml
+
+# ==============================================================================
+# external_validation/ 専用(開発・外部データとも患者ラベル付きのため同様に除外)
+# ==============================================================================
+external_validation/data_external/
+external_validation/metadata_external/*.csv
+external_validation/images_dev/
+external_validation/images_external/
+external_validation/results/**/oof_predictions_winning_hp.csv
+external_validation/results/**/external/external_predictions.csv
+external_validation/results/config_external_snapshot.yaml
+
+# ==============================================================================
+# Python / 環境
+# ==============================================================================
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# ==============================================================================
+# ツール・エディタ・OS
+# ==============================================================================
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ==============================================================================
+# その他一時ファイル
+# ==============================================================================
+tmp_*
+*.tmp

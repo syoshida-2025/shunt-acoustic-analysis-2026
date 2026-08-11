@@ -1,0 +1,5 @@
+アーキテクチャ: efficientnetv2_s
+条件: nfft512_mel256_fmax1000
+開発フェーズ(3-fold探索, 採用HP): mean_val_auc = 0.8142
+外部データ: auc_recording = 0.8199 [0.6835, 0.9564] (n_recordings=38)
+外部データ(ロック済み閾値=0.0046): F1=0.7442, Sens=0.8421, Spec=0.5789

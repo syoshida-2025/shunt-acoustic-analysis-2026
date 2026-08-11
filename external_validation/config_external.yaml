@@ -1,0 +1,111 @@
+# config_external.yaml — 外部検証パイプライン設定
+#
+# 内部検証(config.yaml, 27条件 x 反復CV, HP固定)とは別の目的のパイプライン。
+# こちらは「単一条件について、HPをきちんと調整したモデルを開発データで作り、
+# 外部hold-outデータに1回だけ適用する」という設計。
+#
+# 設計上の要点(README.md に詳細説明あり):
+#   - HP探索: LR x weight_decay のgrid searchを3-fold CV(反復なし)で評価
+#   - アーキテクチャごとに独立してHP探索する
+#   - 最終モデル: 開発データ全例で単一再学習(エポック数はCV探索時のbest_epoch中央値で固定)
+#   - 閾値: 開発データのCV out-of-fold予測から決定し、外部データでは再計算しない(ロック)
+#   - データ拡張: 内部検証と同一設定、訓練データにのみ適用
+
+# ===== 比較対象の条件(内部検証結果に基づき選択) =====
+# 内部検証(27条件 x 30分割)で最良だった条件をデフォルトにしている。
+# 変更する場合はこの3値を書き換えるだけでよい。
+selected_condition:
+  n_fft: 512
+  n_mels: 256
+  fmax: 1000
+
+# ===== 開発(内部)データのパス =====
+dev:
+  clip_metadata_csv: ../metadata/clip_metadata.csv
+  clip_dir: ../data/all_clips
+  images_root: ./images_dev
+
+# ===== 外部hold-outデータのパス(メタデータ未作成、同一スキーマを想定) =====
+external:
+  metadata_xlsx: ./data_external/external_data_v3.xlsx
+  sheet_name: dataset
+  audio_dir: ./data_external/all_sounds
+  clip_dir: ./data_external/all_clips
+  clip_metadata_csv: ./metadata_external/clip_metadata.csv
+  images_root: ./images_external
+
+# ===== 出力先 =====
+results_root: ./results
+
+# ===== 音声プロパティ(内部検証と同一) =====
+audio:
+  sample_rate: 4000
+  clip_duration_sec: 5.0
+  skip_initial_sec: 1.0
+  clipping_threshold: 0.99
+  clipping_max_rate: 0.01
+
+# ===== メタデータスキーマ(内部検証と同一、外部データも同じ形式を想定) =====
+metadata:
+  threshold_fv: 400.0
+  positive_label: 1
+  negative_label: 0
+
+# ===== メルスペクトログラム生成パラメータ(選択した条件に対して固定) =====
+mel_conditions:
+  hop_length_ratio: 0.25
+  image_size: [224, 224]
+  cmap: null
+
+# ===== データ拡張(内部検証と同一設定に固定。HP探索の対象外) =====
+augmentation:
+  apply_noise: true
+  noise_snr_db_min: 15
+  noise_snr_db_max: 15
+  noise_n_aug: 100
+  apply_silence: false
+  brightness_jitter: 0.4
+
+# ===== 比較するアーキテクチャ(それぞれ独立にHP探索する) =====
+architectures:
+  resnet200d:
+    name: resnet200d.ra2_in1k
+    pretrained: true
+    num_classes: 2
+  efficientnetv2_s:
+    name: tf_efficientnetv2_s.in1k
+    pretrained: true
+    num_classes: 2
+
+# ===== ハイパーパラメータ探索 =====
+hp_search:
+  learning_rate: [1.0e-5, 3.0e-5, 1.0e-4, 3.0e-4, 1.0e-3]
+  weight_decay: [1.0e-5, 1.0e-4, 1.0e-3]
+  n_folds: 3                      # 反復なしの単発3-fold(patient-level)
+  random_state: 42
+  patient_id_col: patient_id
+
+# ===== 学習ハイパーパラメータ(探索対象外の固定値。内部検証と同一) =====
+training:
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  batch_size: 32                  # 探索対象外。OOMの場合は16に下げる
+  max_epochs: 30
+  early_stopping_patience: 5
+  scheduler: cosine_annealing
+  scheduler_t_max: 30
+  loss: cross_entropy
+  num_workers: 4
+  pin_memory: true
+  mixed_precision: true
+
+# ===== 正規化(内部検証と同一) =====
+normalization:
+  imagenet_normalization: true
+  imagenet_mean: [0.485, 0.456, 0.406]
+  imagenet_std: [0.229, 0.224, 0.225]
+
+# ===== 実行制御 =====
+execution:
+  deterministic: true
+  cudnn_benchmark: false

@@ -1,0 +1,173 @@
+# config.yaml — シャント音メルスペクトログラムパラメータ最適化
+
+# ===== プロジェクトパス =====
+paths:
+  data_root: ./data
+  metadata_xlsx: ./data/data_v3.xlsx
+  audio_dir: ./data/all_sounds          # 元WAVファイル
+  clip_dir: ./data/all_clips            # 5秒クリップ（生成済み）
+  clip_metadata_csv: ./metadata/clip_metadata.csv
+  cv_splits_json: ./cv_splits/splits.json
+  images_root: ./images                 # メルスペク画像の一時保存場所
+  results_root: ./results
+
+# ===== メタデータスキーマ (data_v3.xlsx) =====
+metadata:
+  sheet_name: dataset
+  required_columns:
+    audio_file: audio_file              # str, e.g., "A0101.wav"
+    patient_id: patient_id              # str, e.g., "A01" (audio_fileの先頭3文字)
+    sesson_id: sesson_id                # nullable, 将来利用予定
+    POD: POD                            # int, 術後日数
+    fv_value: fv_value                  # float, mL/min
+    RI: RI                              # float, 本研究では未使用
+    label: label                        # int, 1 if fv_value < threshold else 0
+  threshold_fv: 400.0                   # FV値の陽性クラス閾値 (mL/min)
+  positive_label: 1                     # 陽性クラス（機能不良）
+  negative_label: 0
+
+# ===== 音声プロパティ =====
+audio:
+  sample_rate: 4000                     # Hz（録音fs）
+  bit_depth: 16
+  channels: 1                           # モノラル
+  clip_duration_sec: 5.0
+  skip_initial_sec: 1.0                 # 最初の1秒をスキップ
+  clip_overlap: false                   # オーバーラップなし
+  clipping_threshold: 0.99             # サンプル絶対値の閾値
+  clipping_max_rate: 0.01              # 1%以上でクリッピングと判定し除外
+
+# ===== メルスペクトログラム条件 =====
+# 既定では n_fft x n_mels x fmax = 27条件を一括実行する
+# （scripts/train_model.py が全27条件 x 30分割 = 810モデルを1回の実行で処理する）。
+#
+# 実行時間の都合で条件を分割して複数回に分けて実行することも可能。その場合は、
+# ここで一部の水準だけを指定して実行し、結果を utils.analysis.combine_metrics_csvs
+# で統合する（手順・注意点は README.md の「複数回に分けて実行した場合の結果統合」を参照）。
+mel_conditions:
+  n_fft: [256, 512, 2048]
+  n_mels: [64, 128, 256]
+  fmax: [1000, 1500, 2000]
+  # 固定パラメータ:
+  hop_length_ratio: 0.25                # hop_length = n_fft * 0.25
+  window: hann
+  fmin: 0
+  htk: false                            # Slaney melフォーミュラを使用
+  norm: slaney
+  power: 2.0
+  amplitude_to_db_ref: max
+  amplitude_to_db_top_db: 80.0
+  image_size: [224, 224]                # (height, width)
+  cmap: null                            # null = グレースケール（3チャンネル複製）
+
+# ===== データ拡張（訓練時のみ） =====
+augmentation:
+  enable_multiclip: true
+  clip_step_sec: 5.0
+  max_clips_per_recording: 10
+  apply_noise: true
+  noise_snr_db_min: 15
+  noise_snr_db_max: 15                  # 固定SNR (min == max)
+  noise_n_aug: 100                      # 100倍の拡張
+  apply_silence: false
+  brightness_jitter: 0.4                # ColorJitter brightness
+
+# ===== クロスバリデーション =====
+cv:
+  n_folds: 3
+  n_repeats: 10
+  random_state_base: 42                 # シード: 42, 43, 44, ..., 51
+  patient_id_col: patient_id
+  test_size: 0.333                      # テストfoldに1/3 (n_folds=3に対応)
+  validation_split_in_train: 0.333      # 訓練fold内でval用に2:1分割
+
+# ===== モデル =====
+model:
+  main:
+    name: resnet200d.ra2_in1k           # timmチェックポイント
+    pretrained: true
+    num_classes: 2
+  sub:                                  # サブアーキテクチャ（最良条件のみ）
+    name: tf_efficientnetv2_s.in1k
+    pretrained: true
+    num_classes: 2
+
+# ===== 学習ハイパーパラメータ（全27条件で固定） =====
+training:
+  optimizer: adamw
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-4
+  betas: [0.9, 0.999]
+  batch_size: 32                        # OOMの場合は16に下げる
+  max_epochs: 30
+  early_stopping_patience: 5
+  scheduler: cosine_annealing           # CosineAnnealingLR
+  scheduler_t_max: 30                   # max_epochsに合わせる
+  loss: cross_entropy
+  class_weights: null                   # クラス不均衡補正なし
+  num_workers: 4                        # DataLoaderワーカー数
+  pin_memory: true
+  mixed_precision: true                 # AMPでメモリ効率化
+
+# ===== 評価 =====
+evaluation:
+  threshold_method: youden              # "youden", "fixed_0.5"
+  aggregation: recording                # "recording"（クリップ確率の平均）or "clip"
+  metrics:
+    - auc
+    - f1
+    - sensitivity
+    - specificity
+    - accuracy
+    - ppv
+    - npv
+
+# ===== 統計解析 =====
+statistics:
+  anova_factors: [n_fft, n_mels, fmax]
+  multiple_comparison: tukey_hsd
+  effect_size: partial_eta_squared
+  ci_method: normal                     # mean ± 1.96 * SE
+  ci_level: 0.95
+
+# ===== モデル重み保存 =====
+# 学習時はモデル重みを保存しない。
+# ANOVA で最良条件が決定後、retrain_best_model.py で再学習して保存する方針。
+save_models:
+  save_all: false              # 学習時は保存なし
+  explicit_conditions: []      # 空リスト（後で retrain_best_model.py で対応）
+
+# ===== 正規化（PyTorch入力） =====
+normalization:
+  power_to_db_ref: max
+  power_to_db_top_db: 80.0
+  min_max_scaling: per_image
+  imagenet_normalization: true
+  imagenet_mean: [0.485, 0.456, 0.406]
+  imagenet_std: [0.229, 0.224, 0.225]
+
+# ===== 実行制御 =====
+execution:
+  # ハイブリッド画像ストレージ: 1条件の画像を生成→学習→削除
+  delete_images_after_training: true
+  # 段階的実行のためのチェックポイント機構
+  checkpoint_enabled: true
+  status_json_path: ./results/status.json
+  # ロギング
+  log_level: INFO
+  log_file: ./results/run.log
+  # 再現性
+  deterministic: true
+  cudnn_benchmark: false
+  # エラー許容: この件数を超えたら停止
+  max_soft_errors: 3
+
+# ===== Grad-CAM =====
+gradcam:
+  target_layer: layer4                  # ResNet200d最終convブロック
+  n_examples_per_category: 2
+  category_balance:
+    true_positive: 2
+    true_negative: 2
+    false_positive: 1
+    false_negative: 1
