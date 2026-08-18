@@ -16,7 +16,7 @@ import statsmodels.formula.api as smf
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze n_fft x n_mels and n_mels x fmax interactions with mixed effects and heatmaps")
-    parser.add_argument("--input", default="results/metrics/all_metrics_27conditions_aug100.csv")
+    parser.add_argument("--input", default="results/metrics/all_metrics.csv")
     parser.add_argument("--output_dir", default="results/interaction_analysis")
     return parser.parse_args()
 
