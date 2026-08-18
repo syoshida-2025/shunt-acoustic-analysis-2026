@@ -18,6 +18,7 @@ EarlyStopping クラス:
 from __future__ import annotations
 
 import time
+import zlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -248,10 +249,12 @@ def train_one_fold(
     train_loader: DataLoader,
     val_loader: DataLoader,
     config: dict,
+    seed: int = 42,
 ) -> tuple[torch.nn.Module, dict]:
     """1 fold 分の学習を実行する。
 
     フロー:
+        0. seed で再現性を固定（重み初期化・Dropout・ColorJitter等）。
         1. モデル、optimizer、scheduler、scaler、criterion を構築。
         2. エポックループ:
            - train_one_epoch
@@ -266,12 +269,18 @@ def train_one_fold(
         train_loader: 訓練 DataLoader。
         val_loader: 検証 DataLoader。
         config: 全 config。
+        seed: この fold の学習プロセス自体（重み初期化・Dropout・オンザフライ
+            拡張・cuDNN演算選択）を固定するシード。呼び出し元で
+            (condition_name, repeat_id, fold_id) から一意に導出することを
+            想定（CVスプリット割り振りやノイズ拡張画像の乱数とは独立）。
 
     Returns:
         (model, history):
             - model: best_val_auc を達成した時点のモデル（重み復元済み）
             - history: dict（エポック単位のログ）
     """
+    _set_seeds(seed)
+
     train_config = config["training"]
     device = _get_device(config)
     use_amp = train_config.get("mixed_precision", True) and device.type == "cuda"
@@ -421,6 +430,20 @@ def predict_on_loader(
 
 # ===== ヘルパー =====
 
+def derive_fold_seed(*parts: str | int) -> int:
+    """識別子(condition_name, repeat_id, fold_id 等)から一意な学習用シードを導出する。
+
+    CVスプリット割り振り（cv_splits/splits.json、config.cv.random_state_base
+    由来）やノイズ拡張画像の乱数（process_audio_to_images の base_seed）とは
+    独立に、学習プロセス自体（モデル重み初期化・Dropout・オンザフライ拡張・
+    cuDNN演算選択）を固定するためのシードを _set_seeds に渡す用途で使う。
+    zlib.crc32 は Python の組み込み hash() と異なりプロセスをまたいで決定的
+    なので、再実行しても同じ値になる。
+    """
+    key = "_".join(str(p) for p in parts)
+    return zlib.crc32(key.encode("utf-8")) % (2**31 - 1)
+
+
 def _get_device(config: dict) -> torch.device:
     """利用可能な device を返す。"""
     if torch.cuda.is_available():
@@ -429,10 +452,18 @@ def _get_device(config: dict) -> torch.device:
 
 
 def _set_seeds(seed: int = 42) -> None:
-    """再現性のための seed 設定。"""
+    """再現性のための seed 設定。
+
+    モデルの重み初期化・Dropout・ColorJitter等のオンザフライ拡張・
+    cuDNNの演算アルゴリズム選択を固定する。CVスプリットの割り振り
+    （cv_splits/splits.json）やノイズ拡張画像の中身（process_audio_to_images
+    の base_seed）とは独立した、学習プロセス自体の乱数を制御する。
+    """
     import random
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False

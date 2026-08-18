@@ -44,8 +44,10 @@ from utils.external_metrics import lock_thresholds_from_oof_predictions
 from utils.metadata_io import read_clip_metadata
 from utils.sound2image import process_audio_to_images
 from utils.trainer import (
+    _set_seeds,
     build_optimizer_and_scheduler,
     create_model,
+    derive_fold_seed,
     predict_on_loader,
     train_one_epoch,
     train_one_fold,
@@ -201,7 +203,8 @@ def run_hp_search(
             train_loader = build_dataloader(train_df, condition_name, runtime_config, mode="train")
             val_loader = build_dataloader(val_df, condition_name, runtime_config, mode="val")
 
-            model, history = train_one_fold(train_loader, val_loader, runtime_config)
+            fold_seed = derive_fold_seed(architecture_key, condition_name, lr, wd, fold_id)
+            model, history = train_one_fold(train_loader, val_loader, runtime_config, seed=fold_seed)
             val_predictions = predict_on_loader(model, val_loader, runtime_config)
 
             fold_results.append({
@@ -246,13 +249,19 @@ def train_fixed_epochs(
     train_loader,
     runtime_config: dict,
     n_epochs: int,
+    seed: int = 42,
 ) -> torch.nn.Module:
     """検証セットなしで、指定エポック数だけ学習する(最終モデルの全データ再学習用)。
 
     HP探索フェーズの early stopping とは異なり、ここでは開発データ全例を訓練に使うため
     検証データが存在しない。エポック数は run_hp_search で選ばれたHPの3-fold分の
     best_epoch の中央値をあらかじめ決定し、固定値として渡す。
+
+    seed: モデル重み初期化・Dropout・オンザフライ拡張・cuDNN演算選択を固定する
+        シード(呼び出し元で architecture_key/condition_name から導出)。
     """
+    _set_seeds(seed)
+
     train_config = runtime_config["training"]
     device = _get_device()
     use_amp = train_config.get("mixed_precision", True) and device.type == "cuda"
@@ -315,7 +324,8 @@ def run_architecture(config: dict, architecture_key: str, condition_name: str, c
         weight_decay=selected_hp["weight_decay"],
     )
     full_train_loader = build_dataloader(clip_df, condition_name, runtime_config, mode="train")
-    final_model = train_fixed_epochs(full_train_loader, runtime_config, epoch_count)
+    final_seed = derive_fold_seed(architecture_key, condition_name, "final")
+    final_model = train_fixed_epochs(full_train_loader, runtime_config, epoch_count, seed=final_seed)
 
     torch.save(
         {

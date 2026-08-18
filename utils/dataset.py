@@ -32,9 +32,10 @@ class ShuntMelDataset(Dataset):
         {images_root}/{condition_name}/{positive|negative}/{clip_basename}.png
 
     注意:
-        - process_audio_to_images はノイズ拡張で複数画像を生成する仕様。
-        - 訓練時は拡張済み画像をディスクから読む（_aug0, _aug1, ..., _aug49）。
-        - 検証・テスト時は aug0 のみ（または拡張なし画像）を使用。
+        - process_audio_to_images は、素の（拡張なし）画像を1枚（サフィックスなし）
+          + augmentation設定時は追加でノイズ拡張画像（_aug0, _aug1, ...）を生成する。
+        - 訓練時は「素の画像 + 拡張画像すべて」をディスクから読む。
+        - 検証・テスト時は素の画像（サフィックスなし）のみを使用する。
     """
 
     def __init__(
@@ -53,7 +54,7 @@ class ShuntMelDataset(Dataset):
             condition_name: 例 "nfft256_mel64_fmax1000"
             images_root: 画像ルートディレクトリ（config["paths"]["images_root"]）
             transform: build_transform で構築した transforms.Compose
-            mode: "train"（拡張ありの画像を使用）、"val"/"test"（素の画像を使用）
+            mode: "train"（素の画像+拡張画像すべてを使用）、"val"/"test"（素の画像のみ使用）
             clip_metadata: 全クリップメタデータ（補助情報取得用、Noneでも動作）
 
         Raises:
@@ -79,8 +80,8 @@ class ShuntMelDataset(Dataset):
     def _build_image_paths(self) -> list[Path]:
         """各サンプルの画像パスを構築する。
 
-        訓練時: _aug0 〜 _augN すべてを使用（50倍拡張）
-        検証・テスト時: _aug0 のみ（または拡張なし画像）を使用
+        訓練時: 素の画像（サフィックスなし）+ _aug0 〜 _augN すべてを使用
+        検証・テスト時: 素の画像（サフィックスなし）のみを使用
 
         Returns:
             各サンプルの画像パスリスト。
@@ -89,25 +90,23 @@ class ShuntMelDataset(Dataset):
         for _, row in self.df.iterrows():
             label_dir = "positive" if row["label"] == 1 else "negative"
             clip_basename = Path(row["clip_file"]).stem
+            label_folder = self.condition_dir / label_dir
+            plain_path = label_folder / f"{clip_basename}.png"
 
             if self.mode == "train":
-                # 拡張済み画像をすべて使用
-                pattern = f"{clip_basename}_aug*.png"
-                aug_files = sorted((self.condition_dir / label_dir).glob(pattern))
-                if not aug_files:
-                    # 拡張なし画像（_augN なし）を試す
-                    plain_path = self.condition_dir / label_dir / f"{clip_basename}.png"
-                    if plain_path.exists():
-                        aug_files = [plain_path]
-                    else:
-                        raise FileNotFoundError(
-                            f"画像が見つかりません: {clip_basename} (in {label_dir})"
-                        )
-                paths.extend(aug_files)
+                # 素の画像 + 拡張済み画像すべてを使用
+                aug_files = sorted(label_folder.glob(f"{clip_basename}_aug*.png"))
+                train_files = ([plain_path] if plain_path.exists() else []) + aug_files
+                if not train_files:
+                    raise FileNotFoundError(
+                        f"画像が見つかりません: {clip_basename} (in {label_dir})"
+                    )
+                paths.extend(train_files)
             else:
-                # val/test: 素の画像 (_aug0 または拡張なし) を1枚だけ
-                plain_path = self.condition_dir / label_dir / f"{clip_basename}.png"
-                aug0_path = self.condition_dir / label_dir / f"{clip_basename}_aug0.png"
+                # val/test: 素の画像を1枚だけ
+                # （_aug0 へのフォールバックは、process_audio_to_images が
+                #   素の画像を必ず生成するため通常は発火しない安全策として残す）
+                aug0_path = label_folder / f"{clip_basename}_aug0.png"
                 if plain_path.exists():
                     paths.append(plain_path)
                 elif aug0_path.exists():
@@ -126,7 +125,7 @@ class ShuntMelDataset(Dataset):
     def _expand_df_for_train(self, image_paths: list[Path]) -> None:
         """訓練時、画像パスの数に合わせて self.df を展開する。
 
-        各クリップに対応する拡張画像 (例: 50枚) ごとに DataFrame の行を複製する。
+        各クリップに対応する画像（素の画像1枚 + 拡張画像N枚）ごとに DataFrame の行を複製する。
         """
         expanded_rows = []
         for path in image_paths:

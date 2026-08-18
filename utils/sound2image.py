@@ -400,7 +400,9 @@ def process_audio_to_images(
     cmap : str | None
         カラーマップ名
     n_aug : int
-        拡張回数（拡張なしの場合は1）
+        ノイズ/無音拡張で追加生成する枚数（apply_noise または apply_silence が
+        True の場合のみ使用）。素の（拡張なし）画像は augmentation 設定に
+        関わらず、クリップごとに必ず1枚（サフィックスなし）保存される。
     apply_silence : bool
         True で無音挿入を適用
     max_silence_duration : float
@@ -435,11 +437,29 @@ def process_audio_to_images(
     positive_folder.mkdir(parents=True, exist_ok=True)
     negative_folder.mkdir(parents=True, exist_ok=True)
 
-    actual_n_aug = 1 if (not apply_silence and not apply_noise) else n_aug
-
     rng = np.random.default_rng(base_seed)
     success_count = 0
     error_count = 0
+
+    def _save_image(wave: np.ndarray, sr: int, save_folder: Path, filename_stem: str) -> None:
+        if use_mel:
+            img_array = wave2image(
+                wave_data=wave, sr=sr, n_mels=n_mels,
+                n_fft_rate=n_fft_rate, hop_length_rate=hop_length_rate,
+                min_n_fft=min_n_fft,
+                n_fft_direct=n_fft_direct,
+                hop_length_direct=hop_length_direct,
+                fmax=fmax,
+                target_shape=target_shape, cmap=cmap
+            )
+        else:
+            img_array = wave2image_fullspec(
+                wave_data=wave, sr=sr,
+                n_fft_rate=n_fft_rate, hop_length_rate=hop_length_rate,
+                fmax=fmax, min_n_fft=min_n_fft,
+                target_shape=target_shape, cmap=cmap
+            )
+        Image.fromarray(img_array).save(save_folder / f"{filename_stem}.png")
 
     for row in tqdm(df.itertuples(), total=len(df), desc="音声ファイルを処理中"):
         try:
@@ -468,31 +488,46 @@ def process_audio_to_images(
                 start_times = [start_time]
                 full_wave_data, sr = None, None
 
+            label_value = getattr(row, label_name)
+            save_folder = positive_folder if label_value >= threshold else negative_folder
+            base_filename = Path(row.audio_file).stem
+
             for clip_idx, current_start in enumerate(start_times):
-                for aug_idx in range(actual_n_aug):
-                    if enable_multiclip:
-                        random_offset = rng.random() * start_time
-                        randomized_start_time = current_start - random_offset
+                if enable_multiclip:
+                    random_offset = rng.random() * start_time
+                    randomized_start_time = current_start - random_offset
 
-                        start_sample = int(randomized_start_time * sr)
-                        end_sample = start_sample + int(clip_duration * sr)
-                        wave_data = full_wave_data[start_sample:end_sample]
+                    start_sample = int(randomized_start_time * sr)
+                    end_sample = start_sample + int(clip_duration * sr)
+                    wave_data = full_wave_data[start_sample:end_sample]
 
-                        target_length = int(clip_duration * sr)
-                        if len(wave_data) < target_length:
-                            wave_data = np.pad(wave_data, (0, target_length - len(wave_data)), mode='constant')
-                    else:
-                        wave_data, sr = clip_audio(
-                            file_path=str(audio_file),
-                            start_time=current_start,
-                            duration=clip_duration,
-                            target_sr=target_sr
-                        )
+                    target_length = int(clip_duration * sr)
+                    if len(wave_data) < target_length:
+                        wave_data = np.pad(wave_data, (0, target_length - len(wave_data)), mode='constant')
+                else:
+                    wave_data, sr = clip_audio(
+                        file_path=str(audio_file),
+                        start_time=current_start,
+                        duration=clip_duration,
+                        target_sr=target_sr
+                    )
 
+                clip_suffix = f"_clip{clip_idx}" if enable_multiclip else ""
+
+                # 素の（拡張なし）画像は augmentation 設定に関わらず必ず1枚保存する。
+                # val/test はこのファイル（サフィックスなし）を参照する。
+                _save_image(wave_data, sr, save_folder, f"{base_filename}{clip_suffix}")
+                success_count += 1
+
+                if not (apply_noise or apply_silence):
+                    continue
+
+                # 追加のノイズ/無音拡張画像（train専用、_aug0.._aug{n_aug-1}）
+                if apply_noise and use_adaptive_snr:
+                    adaptive_min_snr, adaptive_max_snr = get_adaptive_snr_range(wave_data)
+
+                for aug_idx in range(n_aug):
                     augmented_wave = wave_data
-
-                    if apply_noise and use_adaptive_snr:
-                        adaptive_min_snr, adaptive_max_snr = get_adaptive_snr_range(augmented_wave)
 
                     if apply_silence and max_silence_duration > 0.0:
                         seed = rng.integers(np.iinfo(np.int32).max)
@@ -521,35 +556,10 @@ def process_audio_to_images(
                                 random_seed=seed
                             )
 
-                    if use_mel:
-                        img_array = wave2image(
-                            wave_data=augmented_wave, sr=sr, n_mels=n_mels,
-                            n_fft_rate=n_fft_rate, hop_length_rate=hop_length_rate,
-                            min_n_fft=min_n_fft,
-                            n_fft_direct=n_fft_direct,
-                            hop_length_direct=hop_length_direct,
-                            fmax=fmax,
-                            target_shape=target_shape, cmap=cmap
-                        )
-                    else:
-                        img_array = wave2image_fullspec(
-                            wave_data=augmented_wave, sr=sr,
-                            n_fft_rate=n_fft_rate, hop_length_rate=hop_length_rate,
-                            fmax=fmax, min_n_fft=min_n_fft,
-                            target_shape=target_shape, cmap=cmap
-                        )
-
-                    label_value = getattr(row, label_name)
-                    save_folder = positive_folder if label_value >= threshold else negative_folder
-
-                    base_filename = Path(row.audio_file).stem
-                    clip_suffix = f"_clip{clip_idx}" if enable_multiclip else ""
-                    aug_suffix = f"_aug{aug_idx}" if actual_n_aug > 1 else ""
-                    output_filename = f"{base_filename}{clip_suffix}{aug_suffix}.png"
-                    output_path = save_folder / output_filename
-
-                    img = Image.fromarray(img_array)
-                    img.save(output_path)
+                    _save_image(
+                        augmented_wave, sr, save_folder,
+                        f"{base_filename}{clip_suffix}_aug{aug_idx}"
+                    )
                     success_count += 1
 
         except Exception as e:
