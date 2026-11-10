@@ -1,10 +1,3 @@
-"""utils/augmentation.py
-
-音声波形レベルのデータ拡張（訓練データのみに適用）。
-無音挿入（insert_random_silence）とSNR指定のノイズ付加（add_noise_by_snr）を提供する。
-utils/sound2image.py の process_audio_to_images から呼び出される。
-"""
-
 import numpy as np
 
 

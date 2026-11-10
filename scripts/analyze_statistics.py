@@ -1,10 +1,3 @@
-"""scripts/analyze_statistics.py
-
-results/metrics/all_metrics.csv（27条件 x 30 CV分割の評価指標）に対して、
-n_fft・n_mels・fmax を要因とする分散分析（Type II ANOVA、CV分割をブロック因子と
-して含む）と Tukey HSD 多重比較を実行し、results/statistics/ に保存する。
-"""
-
 import argparse
 import itertools
 import os

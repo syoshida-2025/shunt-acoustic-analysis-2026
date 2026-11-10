@@ -21,17 +21,17 @@ selected_condition:
 
 # ===== 開発(内部)データのパス =====
 dev:
-  clip_metadata_csv: ../metadata/clip_metadata.csv
-  clip_dir: ../data/all_clips
+  clip_metadata_csv: ../../metadata/clip_metadata.csv
+  clip_dir: ../../data/all_clips
   images_root: ./images_dev
 
 # ===== 外部hold-outデータのパス(メタデータ未作成、同一スキーマを想定) =====
 external:
-  metadata_xlsx: ./data_external/external_data_v3.xlsx
+  metadata_xlsx: ../data/external_data_v3.xlsx
   sheet_name: dataset
-  audio_dir: ./data_external/all_sounds
-  clip_dir: ./data_external/all_clips
-  clip_metadata_csv: ./metadata_external/clip_metadata.csv
+  audio_dir: ../data/all_sounds
+  clip_dir: ../data/all_clips
+  clip_metadata_csv: ../data/metadata/clip_metadata.csv
   images_root: ./images_external
 
 # ===== 出力先 =====

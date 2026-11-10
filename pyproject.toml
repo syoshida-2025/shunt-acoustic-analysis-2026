@@ -1,7 +1,7 @@
 [project]
-name = "shunt-melspec-v2"
+name = "shunt-acoustic-analysis-2026"
 version = "0.1.0"
-description = "Mel-spectrogram parameter optimization for shunt sound classification"
+description = "Mel-spectrogram parameter comparison and temporal validation for arteriovenous shunt sound classification"
 requires-python = ">=3.10,<3.13"
 
 dependencies = [

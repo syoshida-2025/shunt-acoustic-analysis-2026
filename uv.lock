@@ -1853,7 +1853,7 @@ wheels = [
 ]
 
 [[package]]
-name = "shunt-melspec-v2"
+name = "shunt-acoustic-analysis-2026"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

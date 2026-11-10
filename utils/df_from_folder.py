@@ -1,11 +1,3 @@
-"""utils/df_from_folder.py
-
-positive/negative フォルダ構成から DataFrame を作る補助関数。
-現在のパイプライン（clip_metadata.csv ベース）からは呼ばれておらず、
-本リポジトリのスクリプト群では未使用。過去のフォルダ構成を前提にした
-データ確認用のレガシーユーティリティとして残っている。
-"""
-
 from pathlib import Path
 import pandas as pd
 from pprint import pprint

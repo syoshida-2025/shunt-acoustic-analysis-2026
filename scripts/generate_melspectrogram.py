@@ -97,8 +97,8 @@ def main(config_path: str, condition_name: str) -> int:
         strength=1.0,
         use_adaptive_snr=False,
         enable_multiclip=False,  # クリップ済みなのでマルチクリップ不要
-        clip_step=aug["clip_step_sec"],
-        max_clip=aug["max_clips_per_recording"],
+        clip_step=config["audio"]["clip_duration_sec"],
+        max_clip=config["audio"]["max_clips_per_recording"],
         base_seed=42,
     )
 

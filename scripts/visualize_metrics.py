@@ -1,10 +1,3 @@
-"""visualize_metrics.py
-
-条件別AUCの平均+-SD、因子別主効果、箱ひげ図、交互作用プロットの4パネル図
-（results/auc_analysis.png）と、Top10/Bottom10条件の一覧表（results/auc_summary_table.png）
-を生成する。visualize_metrics_fixed.py / _fixed2.py と入力は共通だが出力形式が異なる。
-"""
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt

@@ -104,6 +104,7 @@ def main(config_path: str) -> int:
         clipping_max_rate=config["audio"]["clipping_max_rate"],
         clip_duration_sec=config["audio"]["clip_duration_sec"],
         skip_initial_sec=config["audio"]["skip_initial_sec"],
+        max_clips_per_recording=config["audio"].get("max_clips_per_recording"),
     )
 
     # 6. 録音メタデータ書き出し
@@ -245,6 +246,7 @@ def compute_derived_columns(
     clipping_max_rate: float,
     clip_duration_sec: float,
     skip_initial_sec: float,
+    max_clips_per_recording: int | None = None,
 ) -> pd.DataFrame:
     """各WAVファイルから派生カラムを計算する。
 
@@ -262,6 +264,7 @@ def compute_derived_columns(
         clipping_max_rate: 除外する最大クリッピング率（通常 0.01）。
         clip_duration_sec: クリップの長さ（秒、通常 5.0）。
         skip_initial_sec: 冒頭スキップ秒数（通常 1.0）。
+        max_clips_per_recording: 1録音あたりのクリップ数の上限（None で上限なし。本研究では 2）。
 
     Returns:
         派生カラムが追加されたDataFrame。
@@ -304,6 +307,8 @@ def compute_derived_columns(
         else:
             usable_duration = duration_sec - skip_initial_sec
             n_clips = int(np.floor(usable_duration / clip_duration_sec))
+            if max_clips_per_recording is not None:
+                n_clips = min(n_clips, int(max_clips_per_recording))  # 1録音あたりの上限
 
         derived["recording_duration_sec"].append(duration_sec)
         derived["clipping_rate"].append(clipping_rate)

@@ -1,149 +1,116 @@
-# shunt_melspec_v3
+# shunt-acoustic-analysis-2026
 
-シャント音メルスペクトログラムの実験パイプラインです。
-本リポジトリは `n_fft × n_mels × fmax` の27条件を比較し、患者レベルの反復交差検証と統計解析(ANOVA / Tukey HSD / 線形混合効果モデル)によって、分類性能に影響するメルスペクトログラム設定を評価します。
+[日本語版 README](README_ja.md)
 
-`config.yaml` は既定で27条件フル実行(`n_fft` 3水準 × `n_mels` 3水準 × `fmax` 3水準)の設定になっています。実行時間の都合で条件を分けて実行したい場合は「5. 複数回に分けて実行した場合の結果統合」を参照してください。
+Code for the study comparing mel-spectrogram parameters for deep-learning classification of
+arteriovenous (AV) shunt sounds, with temporal validation of the best condition.
 
-このリポジトリのパイプラインは2つあります:
-- **本体(このREADME)**: 27条件のメルスペクトログラム設定を比較する内部検証パイプライン(反復CV、ハイパーパラメータ固定)
-- **[`external_validation/`](external_validation/README.md)**: 内部検証で選ばれた単一条件について、ハイパーパラメータを調整したモデルを開発データで構築し、外部hold-outデータに1回だけ適用する外部検証パイプライン(独立したconfig・スクリプト、詳細はリンク先のREADME参照)
+- **Internal validation**: 27 mel-spectrogram conditions (`n_fft` × `n_mels` × `fmax` = 3 × 3 × 3),
+  ResNet200d, patient-level 3-fold cross-validation repeated 10 times (30 splits per condition),
+  followed by ANOVA (with the CV split as a blocking factor) and Tukey HSD.
+- **Temporal validation**: for the selected condition (`n_fft=512`, `n_mels=256`, `fmax=1000`),
+  hyperparameters are tuned on the development data, a final model is trained on all development
+  data, and it is applied once to a temporally independent cohort with a decision threshold locked
+  on the development data (ResNet200d and EfficientNetV2-S). Grad-CAM is computed for ResNet200d.
 
----
+Positive class: flow volume (FV) < 400 mL/min.
 
-## 1. 共有対象と構成
-
-### リポジトリに含まれるもの
-
-- `scripts/` : 実行パイプライン
-- `utils/` : データ処理・モデル学習・評価のロジック
-- `tests/` : 機能検証・回帰テスト
-- `cv_splits/` : 再現性のある CV 分割定義(`splits.json` / `split_summary.csv`)
-- `config.yaml`, `pyproject.toml`, `uv.lock`, `README.md`
-- `visualize_metrics.py`, `visualize_metrics_fixed.py`, `visualize_metrics_fixed2.py`
-- `analyze_metrics.py`, `check_dataset.py`
-
-### リポジトリに含まれないもの(`.gitignore` 参照)
-
-- `data/`(元音声 WAV、`data_v3.xlsx` などの臨床メタデータ)
-- `metadata/*.csv`(patient_id は匿名化済みだが、fv_value・POD・RI 等の臨床測定値を含む)
-- `results/predictions/`(clip_file・patient_id・true_label が紐づく患者単位の予測結果)
-- `results/loss_curves/`, `results/status.json`, `results/run.log`(容量が大きい・再現に必須ではない実行ログ)
-- `results/config_snapshot.yaml`(実行時の `config.yaml` の複製。特定バッチの内部記録であり、`config.yaml` 本体があれば十分なため公開リポジトリには含めない)
-- `.venv/`, `__pycache__/`, `.pytest_cache/` などの環境依存ファイル
-- 研究メモ(方法・結果セクションの草稿、実験ノート等)は本リポジトリの対象外としています
-
-`cv_splits/splits.json` は患者ID(匿名化済みの通し番号)と fold 割り当てを含みますが、臨床測定値そのものは含まないためリポジトリに含めています。
-
-### データスキーマについて
-
-元データ(`data/data_v3.xlsx`)自体は共有しませんが、必要なカラム構成は `config.yaml` の `metadata.required_columns` に定義されています:
-
-| カラム名 | 型 | 説明 |
-|---|---|---|
-| `audio_file` | str | WAVファイル名(例: `A0101.wav`) |
-| `patient_id` | str | 患者ID(匿名化済み、audio_file 先頭3文字から自動補完可) |
-| `sesson_id` | nullable | 将来利用予定、現状未使用 |
-| `POD` | int | 術後日数 |
-| `fv_value` | float | 血流量(mL/min) |
-| `RI` | float | 抵抗係数(本研究では未使用) |
-| `label` | int | `1` if `fv_value < threshold_fv` else `0`(閾値は `metadata.threshold_fv`、既定 400 mL/min) |
-
-欠損値の扱いは [scripts/generate_metadata.py](scripts/generate_metadata.py) の `apply_missing_value_policy()` を参照してください。同じスキーマの xlsx を用意すれば、以下の手順でパイプラインを再現できます。
+> **Data availability.** The audio recordings and clinical data are not included in this
+> repository (patient privacy). Only the code, configuration files and the patient-level
+> CV split definition (`cv_splits/`, anonymised sequential IDs) are provided.
 
 ---
 
-## 2. ディレクトリ構成
+## 1. Setup
 
-```
-shunt_melspec_v3/
-├── config.yaml
-├── pyproject.toml
-├── scripts/
-│   ├── generate_metadata.py
-│   ├── create_clipped_audio.py
-│   ├── prepare_cv_splits.py
-│   ├── generate_melspectrogram.py
-│   ├── train_model.py
-│   ├── analyze_statistics.py
-│   └── analyze_interactions.py
-├── utils/
-│   ├── augmentation.py
-│   ├── checkpoint.py
-│   ├── data_split.py
-│   ├── dataset.py
-│   ├── df_from_folder.py
-│   ├── metadata_io.py
-│   ├── metrics.py
-│   ├── sound2image.py
-│   ├── trainer.py
-│   └── analysis.py
-├── tests/
-│   ├── test_checkpoint.py
-│   ├── test_combine_metrics.py
-│   ├── test_data_layer.py
-│   ├── test_interaction_analysis.py
-│   └── test_metrics.py
-├── cv_splits/
-│   ├── splits.json
-│   └── split_summary.csv
-├── visualize_metrics.py
-├── visualize_metrics_fixed.py
-├── visualize_metrics_fixed2.py
-├── analyze_metrics.py
-├── check_dataset.py
-└── README.md
-```
-
----
-
-## 3. 準備
-
-### 前提条件
-
-- Python 3.10–3.12
-- `uv` がインストール済み
-- NVIDIA GPU(CUDA 対応)推奨
-- 元データは別途用意(`data/data_v3.xlsx`, `data/all_sounds/` を「1. データスキーマについて」の形式で配置)
-
-### 依存パッケージのインストール
+Requirements: Python 3.10–3.12, [uv](https://docs.astral.sh/uv/), and an NVIDIA GPU
+(the lock file pins PyTorch built for CUDA 12.8).
 
 ```bash
-cd shunt_melspec_v3
+git clone https://github.com/syoshida-2025/shunt-acoustic-analysis-2026.git
+cd shunt-acoustic-analysis-2026
 uv sync
 ```
 
-`pyproject.toml` は CUDA 12.8 向けの PyTorch インデックスを明示的に指定しています(RTX 5060 等 Blackwell 世代 GPU 向け)。異なる CUDA バージョンの環境では `[tool.uv.sources]` の調整が必要です。
+All commands below are run with `uv run`, which uses the project environment created by `uv sync`.
 
----
+## 2. Expected data layout (not included)
 
-## 4. 実行手順
-
-### Phase 1: データ準備と CV 分割
-
-```bash
-uv run python scripts/generate_metadata.py --config config.yaml
-uv run python scripts/create_clipped_audio.py --config config.yaml
-uv run python scripts/prepare_cv_splits.py --config config.yaml
+```
+data/
+├── data_v3.xlsx          # sheet "dataset": audio_file, patient_id, POD, fv_value, RI, ...
+├── all_sounds/           # original WAV files (4 kHz, 16-bit, mono)
+└── all_clips/            # 5-s clips (generated by create_clipped_audio.py)
+metadata/                 # generated by generate_metadata.py / create_clipped_audio.py
+temporal_validation/data/
+├── external_data_v3.xlsx # temporal cohort, same schema
+├── all_sounds/
+├── all_clips/
+└── metadata/
 ```
 
-`cv_splits/splits.json` と `cv_splits/split_summary.csv` が生成されます(既にリポジトリに含まれる分割を使う場合はこの手順は不要です)。
+Paths are set in `config.yaml` (internal validation) and
+`temporal_validation/hp_tuned/config_external.yaml` (temporal validation).
 
-### Phase 2: モデル学習
+## 3. Repository structure
 
-```bash
-uv run python scripts/train_model.py --config config.yaml
+```
+├── config.yaml                 # internal validation settings (27 conditions, augmentation, CV, training)
+├── cv_splits/                  # pre-computed patient-level CV splits (10 repeats × 3 folds)
+├── scripts/
+│   ├── generate_metadata.py        # xlsx -> recording/clip metadata (5-s clips, first 1 s skipped, no overlap, max 2 per recording)
+│   ├── create_clipped_audio.py     # writes the 5-s clip WAV files
+│   ├── prepare_cv_splits.py        # patient-level repeated CV splits
+│   ├── generate_melspectrogram.py  # mel-spectrogram images for one condition
+│   ├── train_model.py              # train/evaluate all conditions × splits (resumable)
+│   ├── analyze_statistics.py       # ANOVA (split_id as block) + Tukey HSD
+│   ├── make_table2_3dec.py         # Table 2 (mean ± SD per condition)
+│   ├── visualize_metrics.py        # AUC summary figures
+│   └── generate_27condition*_examples.py  # example images for all 27 conditions
+├── utils/                      # data loading, augmentation, training, metrics, analysis
+├── tests/                      # unit tests (pytest)
+└── temporal_validation/hp_tuned/
+    ├── config_external.yaml            # selected condition, HP grid, paths
+    ├── config_external_metadata.yaml   # metadata/clip generation for the temporal cohort
+    ├── tune_and_develop.py             # HP search (3-fold CV) + threshold locking on development data
+    ├── retrain_final_seeded.py         # final models on all development data (seed 42)
+    ├── evaluate_external_noisy.py      # apply once to the temporal cohort (primary analysis)
+    ├── evaluate_external.py            # apply once to the temporal cohort (supplementary)
+    ├── analyze_external.py             # Table 4 (95% CI, Brier score, calibration), ROC and calibration plots
+    ├── plot_external_roc.py            # ROC curve
+    ├── gradcam_resnet.py               # Grad-CAM for ResNet200d (uses gradcam_common.py)
+    └── run_a1.sh                       # runs retrain -> evaluate -> analyze -> Grad-CAM in order
 ```
 
-- 既定の `config.yaml` は27条件 × 30分割 = 810モデルを学習する設定です
-- `results/status.json` によって中断後の再開が可能です
-- `execution.delete_images_after_training: true` の場合、1条件の学習が終わるごとにメルスペクトログラム画像を削除します(ディスク容量の節約)
+## 4. Internal validation (27 conditions)
 
----
+### 4.1 Data preparation and CV splits
 
-## 5. 複数回に分けて実行した場合の結果統合
+```bash
+uv run scripts/generate_metadata.py --config config.yaml
+uv run scripts/create_clipped_audio.py --config config.yaml
+uv run scripts/prepare_cv_splits.py --config config.yaml
+```
 
-条件数が多く1回で学習しきれない場合、条件のサブセットごとに `config.yaml` の `mel_conditions` を変えて複数回に分けて実行し、後から結果を統合できます。
+`cv_splits/splits.json` in this repository is the split definition used in the study.
+
+### 4.2 Training and evaluation
+
+```bash
+uv run scripts/train_model.py --config config.yaml
+```
+
+- 27 conditions × 30 splits = 810 models. Images for one condition are generated, used and deleted
+  (`execution.delete_images_after_training`).
+- Progress is stored in `results/status.json`; an interrupted run resumes from where it stopped.
+- Outputs: `results/metrics/all_metrics.csv`, `results/predictions/{condition}.csv`,
+  `results/loss_curves/`.
+
+### 4.3 Combining results from several runs
+
+In the study the 27 conditions were run in more than one batch. Metric CSVs from separate runs are
+combined (duplicates removed by `condition_name + repeat_id + fold_id`). This step must be run with
+`uv run python -` because the code is passed on standard input:
 
 ```bash
 uv run python - <<'PY'
@@ -155,109 +122,64 @@ combined = combine_metrics_csvs(
         Path('results_run1/metrics/all_metrics.csv'),
         Path('results_run2/metrics/all_metrics.csv'),
     ],
-    output_path='results/metrics/all_metrics_combined.csv',
+    output_path='results/metrics/all_metrics_27conditions_aug100.csv',
 )
 print(f'rows={len(combined)} conditions={combined["condition_name"].nunique()}')
 PY
 ```
 
-`combine_metrics_csvs` は `condition_name + repeat_id + fold_id` をキーに重複を排除し、**後に渡したファイルの値を優先**します(`drop_duplicates(keep="last")`)。
-
-> **注意(実運用で起きた事故の教訓)**: 学習条件(特にデータ拡張倍率などの `config.yaml` 設定)を変えて再学習した際、統合スクリプトに渡すファイルの組み合わせを誤ると、意図した新しい結果ではなく古い結果が生き残ります。統合後は必ず、`condition_name / repeat_id / fold_id` をキーに元の各ファイルと突き合わせて、期待した実行結果が反映されているかを検証してください(単純に行数・条件数が一致するだけでは、どちらのバッチの値が採用されたかは分かりません)。また、統合対象の各バッチが同一の `config.yaml`(特に `augmentation` 設定)で学習されたことを `results_run*/config_snapshot.yaml` 同士を diff して確認することを推奨します。
-
-その後、統合済みファイルに対して解析・可視化を実行します。
+### 4.4 Statistics, tables and figures
 
 ```bash
-uv run python scripts/analyze_statistics.py --input results/metrics/all_metrics_combined.csv --output_dir results/statistics
-uv run python scripts/analyze_interactions.py --input results/metrics/all_metrics_combined.csv --output_dir results/interaction_analysis
+uv run scripts/analyze_statistics.py --input results/metrics/all_metrics_27conditions_aug100.csv --output_dir results/statistics
+uv run scripts/make_table2_3dec.py
+uv run scripts/visualize_metrics.py
 ```
 
-`visualize_metrics*.py` は入力パスをスクリプト内でハードコードしています(既定: `results/metrics/all_metrics_27conditions_aug100.csv`)。統合ファイル名を変えた場合は、各スクリプト冒頭の `pd.read_csv(...)` を書き換えてください。
+`analyze_statistics.py` fits `auc_recording ~ C(n_fft) + C(n_mels) + C(fmax) + C(split_id)` plus all
+two-way interactions by default; `split_id` is a blocking factor because the same 30 splits are
+shared by all conditions.
 
----
+## 5. Temporal validation
 
-## 6. 統計解析スクリプト
-
-### scripts/analyze_statistics.py
-
-- `n_fft`, `n_mels`, `fmax` の3要因に加え、交差検証分割(`repeat_id × fold_id`、既定30水準)を**ブロック因子**としてモデルに含めた分散分析(Type II ANOVA)を実行します。同一の CV 分割が全条件で共有されているため、これをブロック因子として明示的に扱わないと疑似反復により検定が楽観的になります(`--no_block` で従来型の単純ANOVAに切替可能ですが非推奨)。
-- 既定では全ての2要因交互作用(`n_fft:n_mels`, `n_fft:fmax`, `n_mels:fmax`)も含めた完全な因子モデルを実行します(`--no_interactions` で主効果のみに変更可能)。
-- 有意な主効果について、ブロック効果を除去した調整後AUC(`auc_recording_block_adj`)に基づき Tukey HSD による多重比較を行います。
-- 結果は `--output_dir`(既定 `results/statistics`)に `anova_table.csv`, `condition_means.csv`, `tukey_{factor}.csv`, `summary.txt` として保存されます。
-
-### scripts/analyze_interactions.py
-
-- 交差検証分割をランダム切片とする線形混合効果モデル(固定効果: `n_fft`, `n_mels`, `fmax`, `n_fft:n_mels`, `n_mels:fmax`)による感度分析を行います。
-- `n_fft×n_mels`, `n_fft×fmax`, `n_mels×fmax` それぞれの平均AUCヒートマップを出力します。
-
-### visualize_metrics.py / _fixed.py / _fixed2.py
-
-3スクリプトとも同じ入力(条件別AUC)から異なる形式の図表を生成します(機能が重複しているため、将来的に統合予定)。
-
-- `visualize_metrics.py`: 条件別AUC・因子別主効果・箱ひげ図・交互作用プロットの4パネル図、および Top10/Bottom10 テーブル
-- `visualize_metrics_fixed.py`: Top10テーブルと全条件ランキング図
-- `visualize_metrics_fixed2.py`: 全条件ランキング図(`_fixed.py` とほぼ同内容の別実装)
-
-### analyze_metrics.py / check_dataset.py
-
-- `analyze_metrics.py`: `results/metrics/all_metrics.csv` の簡易サマリー出力(デバッグ用)
-- `check_dataset.py`: `metadata/recording_metadata.csv` のクラス分布確認(デバッグ用)
-
----
-
-## 7. テスト
+Run from `temporal_validation/hp_tuned/`.
 
 ```bash
-uv run python -m pytest tests/ -v
+cd temporal_validation/hp_tuned
+
+# metadata and clips for the temporal cohort
+uv run ../../scripts/generate_metadata.py --config config_external_metadata.yaml
+uv run ../../scripts/create_clipped_audio.py --config config_external_metadata.yaml
+
+# HP search on development data, epoch count and threshold locking
+uv run tune_and_develop.py
+
+# final models, single application to the temporal cohort, analysis, Grad-CAM
+bash run_a1.sh
 ```
 
----
+`run_a1.sh` runs, in order: `retrain_final_seeded.py`, `evaluate_external_noisy.py`,
+`evaluate_external.py`, `analyze_external.py --images noisy|clean`,
+`gradcam_resnet.py --images noisy|clean`.
 
-## 8. 設定概要(`config.yaml`)
+Notes on the design:
 
-| セクション | 項目 | 説明 |
-|---|---|---|
-| `mel_conditions` | `n_fft`, `n_mels`, `fmax` | 比較する27条件の水準 |
-| `mel_conditions` | `hop_length_ratio` | ホップ長 = `n_fft × hop_length_ratio`(固定 0.25) |
-| `augmentation` | `noise_n_aug` | ノイズ拡張倍率(訓練データのみ) |
-| `cv` | `n_folds`, `n_repeats` | 外側CVの分割数・反復回数(既定 3×10=30分割) |
-| `cv` | `validation_split_in_train` | 訓練foldの中でモデル選択用に切り出す検証集合の割合 |
-| `training` | `learning_rate`, `max_epochs`, `mixed_precision` 等 | 学習ハイパーパラメータ(全条件で固定) |
-| `evaluation` | `threshold_method`, `aggregation` | 閾値決定方法・クリップ→音源集約方法 |
-| `execution` | `delete_images_after_training` | 画像削除の有無(ハイブリッドストレージ運用) |
+- Hyperparameters (learning rate × weight decay grid), the number of epochs (median best epoch in
+  the HP search) and the recording-level threshold are fixed on the development data; the
+  threshold is not recomputed on the temporal cohort.
+- Temporal results are reported as point estimates with 95% CIs.
 
-> `mel_conditions.htk`, `norm`, `power`, `amplitude_to_db_top_db` はドキュメント目的の記載であり、[utils/sound2image.py](utils/sound2image.py) の実装は librosa のデフォルト値(Slaney正規化・非HTK・power=2・top_db=80dB)に依存しています。値を変更しても実際の計算には反映されないため注意してください。
+## 6. Tests
 
----
-
-## 9. 出力ファイル
-
-```
-results/
-├── status.json              # 進捗管理(git管理外)
-├── config_snapshot.yaml     # 実行時のconfig.yamlのコピー(git管理外、複数バッチを統合する際の確認用)
-├── run.log                  # 実行ログ(git管理外)
-├── predictions/{condition_name}.csv   # クリップ単位の予測(git管理外、患者ラベル付き)
-├── metrics/all_metrics.csv            # 条件×分割ごとの評価指標(1行 = 1 condition × 1 repeat × 1 fold)
-├── loss_curves/{condition_name}/repeat{R}_fold{F}.csv   # (git管理外)
-├── statistics/               # analyze_statistics.py の出力
-└── interaction_analysis/     # analyze_interactions.py の出力
+```bash
+uv run pytest tests/ -v
 ```
 
-### `metrics/all_metrics.csv` の主なカラム
+## 7. Reproducibility notes
 
-- `condition_name`, `n_fft`, `n_mels`, `fmax`, `repeat_id`, `fold_id`
-- `auc_recording`, `auc_recording_ci_lower/upper`(DeLong近似CI)
-- `f1_recording`, `sensitivity_recording`, `specificity_recording`, `ppv_recording`, `npv_recording`, `accuracy_recording`
-- `auc_clip` 等のクリップレベル指標
-- `best_val_auc`, `best_epoch`, `epochs_run`
-
-主指標は `auc_recording`(クリップレベル予測を音源単位に平均集約したAUC、閾値非依存)です。`*_recording` の二値指標(F1・感度・特異度等)は、各テスト分割のデータ自体からYouden indexで事後決定した閾値に基づく参考値である点に注意してください。
-
----
-
-## 10. 再現性に関する注意点
-
-- `cv_splits/splits.json` は同じ CV 分割を再現するために重要です。乱数シードは `cv.random_state_base`(既定42)を起点に、`repeat_id` ごとに +1、検証分割はテスト分割のシード + 1000 で決定論的に導出されます。
-- `results/status.json` を削除すると全条件が再実行されます。
-- 学習時にモデル重みは既定で保存されません(`save_models.save_all: false`)。事後的な閾値再計算や推論のやり直しはできないため、必要な場合は学習前に設定を変更してください。
+- Internal validation training did not fix random seeds, so re-running it gives slightly
+  different numbers. The temporal-validation final models are trained with seed 42.
+- Analysed data: 153 recordings (one recording excluded for insufficient length), 282 clips,
+  61 patients (49 positive / 104 negative recordings). Temporal cohort: 15 patients,
+  38 recordings, 75 clips.
+- Code comments are mainly in Japanese.

@@ -1,4 +1,4 @@
-"""shunt_melspec_v2 の再利用可能なモジュール群。"""
+"""シャント音メルスペクトログラム解析の再利用可能なモジュール群。"""
 
 from .data_split import split_train_test_by_patient, print_ratio
 from .augmentation import add_noise_by_snr, insert_random_silence

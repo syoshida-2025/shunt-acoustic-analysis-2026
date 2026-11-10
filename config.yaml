@@ -33,21 +33,17 @@ audio:
   channels: 1                           # モノラル
   clip_duration_sec: 5.0
   skip_initial_sec: 1.0                 # 最初の1秒をスキップ
+  max_clips_per_recording: 2            # 1録音あたりのクリップ数の上限（録音は最長15秒のため実質も最大2）
   clip_overlap: false                   # オーバーラップなし
   clipping_threshold: 0.99             # サンプル絶対値の閾値
   clipping_max_rate: 0.01              # 1%以上でクリッピングと判定し除外
 
 # ===== メルスペクトログラム条件 =====
-# 既定では n_fft x n_mels x fmax = 27条件を一括実行する
-# （scripts/train_model.py が全27条件 x 30分割 = 810モデルを1回の実行で処理する）。
-#
-# 実行時間の都合で条件を分割して複数回に分けて実行することも可能。その場合は、
-# ここで一部の水準だけを指定して実行し、結果を utils.analysis.combine_metrics_csvs
-# で統合する（手順・注意点は README.md の「複数回に分けて実行した場合の結果統合」を参照）。
 mel_conditions:
   n_fft: [256, 512, 2048]
-  n_mels: [64, 128, 256]
+  n_mels: [64, 128, 256]                         # Stage 1: n_mels=128 のみ（9条件）
   fmax: [1000, 1500, 2000]
+  # Stage 2: [64] / Stage 3: [256] で繰り返し
   # 固定パラメータ:
   hop_length_ratio: 0.25                # hop_length = n_fft * 0.25
   window: hann
@@ -62,9 +58,6 @@ mel_conditions:
 
 # ===== データ拡張（訓練時のみ） =====
 augmentation:
-  enable_multiclip: true
-  clip_step_sec: 5.0
-  max_clips_per_recording: 10
   apply_noise: true
   noise_snr_db_min: 15
   noise_snr_db_max: 15                  # 固定SNR (min == max)

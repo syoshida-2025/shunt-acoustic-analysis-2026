@@ -1,12 +1,3 @@
-"""utils/data_split.py
-
-患者ID単位（クリップ単位ではない）でのデータ分割ロジック。
-StratifiedGroupKFold により、陽性/陰性比を保ちつつ同一患者のデータが
-train/test 両方に分散しないように分割する。
-scripts/prepare_cv_splits.py（外側CV）と scripts/train_model.py（内側validation分割）
-の両方から呼び出される。
-"""
-
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 

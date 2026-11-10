@@ -1,4 +1,4 @@
-"""external_validation/evaluate_external.py
+"""temporal_validation/hp_tuned/evaluate_external.py
 
 外部検証パイプライン Phase B: ロック済みモデル・閾値を外部hold-outデータに
 1回だけ適用し、汎化性能を評価する。
@@ -32,7 +32,7 @@ import pandas as pd
 import torch
 import yaml
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # v4: temporal_validation/hp_tuned -> project root
 
 from utils.dataset import build_dataloader
 from utils.external_metrics import evaluate_with_locked_threshold

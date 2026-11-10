@@ -1,4 +1,4 @@
-"""utils/metadata_io.py — shunt_melspec_v2 のメタデータI/Oヘルパー。
+"""utils/metadata_io.py — メタデータI/Oヘルパー。
 
 data_v3.xlsx と clip_metadata.csv に対するすべてのI/O処理をカプセル化し、
 下流スクリプトをクリーンに保つ。

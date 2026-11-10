@@ -1,4 +1,4 @@
-"""external_validation/plot_external_roc.py
+"""temporal_validation/hp_tuned/plot_external_roc.py
 
 外部hold-outテストセットにおける recording-level ROC曲線を、複数アーキテクチャ
 重ね書きで1枚のFigureとして出力する。
@@ -20,7 +20,7 @@ import pandas as pd
 from sklearn.metrics import auc as sk_auc
 from sklearn.metrics import roc_curve
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # v4: temporal_validation/hp_tuned -> project root
 
 from utils.metadata_io import read_clip_metadata
 from utils.metrics import aggregate_clip_to_recording

@@ -7,7 +7,7 @@
 ハイブリッドストレージ方針により、1 条件分の画像のみをディスク上に保持する。
 
 実行例:
-    uv run python scripts/train_model.py --config config.yaml
+    uv run scripts/train_model.py --config config.yaml
 
 主要な出力:
     - results/predictions/{condition_name}.csv     (各条件、追記モード)
@@ -52,7 +52,7 @@ from utils.data_split import split_train_test_by_patient
 from utils.dataset import build_dataloader
 from utils.metadata_io import read_clip_metadata
 from utils.metrics import compute_all_metrics
-from utils.trainer import derive_fold_seed, predict_on_loader, train_one_fold
+from utils.trainer import predict_on_loader, train_one_fold
 
 
 # ===== 例外種別 =====
@@ -234,7 +234,7 @@ def load_splits(config: dict) -> dict:
     if not splits_path.exists():
         raise FatalError(
             f"splits.json が存在しません: {splits_path}\n"
-            f"先に `uv run python scripts/prepare_cv_splits.py` を実行してください。"
+            f"先に `uv run scripts/prepare_cv_splits.py` を実行してください。"
         )
     with open(splits_path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -327,12 +327,10 @@ def train_one_split(
     test_loader = build_dataloader(test_df, condition_name, config, mode="test")
 
     # 4. 学習
-    fold_seed = derive_fold_seed(condition_name, split["repeat_id"], split["fold_id"])
     model, history = train_one_fold(
         train_loader=train_loader,
         val_loader=val_loader,
         config=config,
-        seed=fold_seed,
     )
 
     # 5. テスト予測
