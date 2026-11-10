@@ -41,9 +41,9 @@ audio:
 # ===== メルスペクトログラム条件 =====
 mel_conditions:
   n_fft: [256, 512, 2048]
-  n_mels: [64, 128, 256]                         # Stage 1: n_mels=128 のみ（9条件）
+  n_mels: [64, 128, 256]         
   fmax: [1000, 1500, 2000]
-  # Stage 2: [64] / Stage 3: [256] で繰り返し
+  
   # 固定パラメータ:
   hop_length_ratio: 0.25                # hop_length = n_fft * 0.25
   window: hann
@@ -104,7 +104,7 @@ training:
 
 # ===== 評価 =====
 evaluation:
-  threshold_method: youden              # "youden", "fixed_0.5"
+  threshold_method: youden              
   aggregation: recording                # "recording"（クリップ確率の平均）or "clip"
   metrics:
     - auc
