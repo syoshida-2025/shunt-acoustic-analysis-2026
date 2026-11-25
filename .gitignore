@@ -1,0 +1,55 @@
+# ==============================================================================
+# Patient data and clinical information (never commit)
+# ==============================================================================
+# Raw audio, clips and clinical metadata (fv_value, POD, RI, ...).
+data/
+metadata/
+temporal_validation/data/
+*.xlsx
+*.wav
+
+# Per-clip / per-recording predictions are linked to patient IDs and labels.
+results/
+**/results/
+**/results_*/
+
+# Generated mel-spectrogram images (intermediate files).
+images/
+**/images_dev/
+**/images_external/
+**/images_external_noisy/
+
+# Model weights
+*.pth
+*.pt
+
+# Logs and run snapshots
+logs/
+**/logs/
+*.log
+**/config_snapshot.yaml
+**/config_external_snapshot.yaml
+
+# ==============================================================================
+# Python / environment
+# ==============================================================================
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# ==============================================================================
+# Tools / editors / OS
+# ==============================================================================
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+tmp_*
+*.tmp

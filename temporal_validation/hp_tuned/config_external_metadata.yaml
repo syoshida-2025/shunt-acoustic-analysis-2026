@@ -1,0 +1,33 @@
+# config_external_metadata.yaml
+#
+# scripts/generate_metadata.py と scripts/create_clipped_audio.py は
+# config["paths"][...] という構造を前提にしている(内部検証の config.yaml と同じ形)。
+# config_external.yaml は dev/external を分けた別構造のため、このファイルを
+# 外部データのメタデータ生成専用に用意している。
+#
+# 実行方法(temporal_validation/hp_tuned/ ディレクトリから):
+#   cd temporal_validation/hp_tuned
+#   uv run ../../scripts/generate_metadata.py --config config_external_metadata.yaml
+#   uv run ../../scripts/create_clipped_audio.py --config config_external_metadata.yaml
+#
+# config_external.yaml の external セクションと値を揃えてあるので、
+# 外部データのパスを変更する場合は両方のファイルを更新すること。
+
+paths:
+  metadata_xlsx: ../data/external_data_v3.xlsx
+  audio_dir: ../data/all_sounds
+  clip_dir: ../data/all_clips
+  clip_metadata_csv: ../data/metadata/clip_metadata.csv
+  results_root: ./results
+
+metadata:
+  sheet_name: dataset
+  threshold_fv: 400.0
+
+audio:
+  sample_rate: 4000
+  clip_duration_sec: 5.0
+  skip_initial_sec: 1.0
+  max_clips_per_recording: 2
+  clipping_threshold: 0.99
+  clipping_max_rate: 0.01
